@@ -4,20 +4,21 @@ A machine learning–driven swing trading strategy running on Alpaca's paper tra
 
 ---
 
-## Backtest Results (Jul 2025 – Feb 2026, out-of-sample)
+## Backtest Results (Aug 2025 – Feb 2026, out-of-sample)
 
 | Metric | Value |
 |---|---|
-| Trades | 202 over 153 trading days |
-| Win rate | 59.4% gross / 58.4% net |
-| Avg return | +1.55% gross / +1.25% net per trade |
-| Total P&L | **+$13,260 (+13.26%)** on $100,000 |
-| Annualized return | **+21.84%** |
-| Sharpe ratio | **1.96** |
-| Max drawdown | **-2.29%** (on equity curve) |
-| Profit factor | 2.01 |
+| Trades | 173 over 133 trading days |
+| Win rate | 61.3% gross / 60.7% net |
+| Avg return | +1.78% gross / +1.47% net per trade |
+| Total P&L | **+$13,428 (+13.43%)** on $100,000 |
+| Annualized return | **+25.44%** |
+| Sharpe ratio | **2.32** |
+| Max drawdown | **-2.40%** (on equity curve) |
+| Profit factor | 2.26 |
 
 > Costs include 0.1% commission + 0.05% slippage per leg. Position sizing uses Kelly criterion capped at 5% per trade.
+> v2 improvements: market breadth filter (≥35% of universe above SMA200), SMA200 distance buffer (2%), threshold raised to 0.64.
 
 ---
 
@@ -42,9 +43,10 @@ yfinance / Alpaca Data API
         ▼                                                      │
   PrimaryModel  (rule-based filter)                            │
   • ADX ≥ 15                                                   │
-  • close > SMA200 (trend)                                     │
+  • close > SMA200 × 1.02  (2% buffer, avoids range-bound)    │
   • SPY > MA200 (bull market regime)                           │
   • CS momentum rank ≥ 0.3                                     │
+  • Market breadth ≥ 35% (≥35% of universe above SMA200)      │
   • MA20 / MA60 cross (entry timing)                           │
         │ signal ∈ {+1, 0, -1}                                │
         ▼                                                      │
@@ -66,7 +68,7 @@ yfinance / Alpaca Data API
   • Volume ≥ 0.5× 20d avg                                     │
   • Earnings blackout ±5 days                                  │
   • VIX regime: +0.05 threshold in high-VIX environment       │
-        │ prob ≥ threshold (0.62)                              │
+        │ prob ≥ threshold (0.64)                              │
         ▼                                                      │
   Executor  (Alpaca bracket orders)                            │
   • Kelly position sizing (max 5% per trade, max 60% exposure)│

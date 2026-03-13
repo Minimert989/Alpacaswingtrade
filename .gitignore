@@ -31,5 +31,7 @@ notebooks/
 .DS_Store
 Thumbs.db
 
-# Secrets — real config goes in config.yaml (not committed)
-# config.yaml is included but with placeholder credentials
+# Real config with live credentials — never commit this
+config.yaml
+config.yaml.secret_backup
+# config_template.yaml (placeholder version) is safe to commit

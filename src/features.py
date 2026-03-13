@@ -20,12 +20,14 @@ MODEL_FEATURE_COLS = [
     "hv_20", "hv_ratio", "vix_regime", "adx_regime",
     "gap_open", "overnight_ret",
     "cs_momentum_rank", "cs_vol_rank", "cs_rsi_rank",
+    "breadth_pct",   # fraction of universe above SMA200 (market health)
     "primary_signal",
 ]
 
 PRIMARY_REQUIRED_COLS = [
     "adx_14", "ma_cross_20_60", "close", "sma_200",
-    "spy_price", "spy_ma60", "spy_ma200", "earnings_proximity", "cs_momentum_rank",
+    "spy_price", "spy_ma60", "spy_ma200", "earnings_proximity",
+    "cs_momentum_rank", "breadth_pct",
 ]
 
 SECTOR_MAP = {
@@ -194,10 +196,20 @@ def _add_cross_sectional(result_dict):
         t: result_dict[t]["sector_rel"].rolling(20).sum()
         for t in tickers
     })
+
+    # Market breadth: fraction of universe with close > SMA200 each day.
+    # Choppy/bear markets show breadth < 0.4; strong bull markets > 0.6.
+    above_sma = pd.DataFrame({
+        t: (result_dict[t]["close"] > result_dict[t]["sma_200"]).astype(float)
+        for t in tickers
+    })
+    breadth_series = above_sma.mean(axis=1)   # 0.0 – 1.0
+
     for ticker in tickers:
         f = result_dict[ticker]
         f["cs_momentum_rank"] = mom_mat.rank(axis=1, pct=True)[ticker]
         f["cs_vol_rank"]      = (1 - hv_mat.rank(axis=1, pct=True))[ticker]
         f["cs_rsi_rank"]      = rsi_mat.rank(axis=1, pct=True)[ticker]
+        f["breadth_pct"]      = breadth_series.reindex(f.index, method="ffill")
         result_dict[ticker]   = f
     return result_dict
