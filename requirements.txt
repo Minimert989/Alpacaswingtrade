@@ -1,0 +1,16 @@
+alpaca-py
+pyarrow
+yfinance
+pandas-ta
+lightgbm
+xgboost
+scikit-learn
+joblib
+pyyaml
+numpy
+pandas
+scipy
+matplotlib
+pytz
+notebook
+requests

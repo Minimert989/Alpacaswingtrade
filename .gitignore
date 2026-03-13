@@ -1,0 +1,35 @@
+# Data cache (do not commit raw market data)
+data/
+outputs/
+
+# Trained model artifacts
+models/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — real config goes in config.yaml (not committed)
+# config.yaml is included but with placeholder credentials
