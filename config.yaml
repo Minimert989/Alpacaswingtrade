@@ -1,5 +1,5 @@
-alpaca_key: YOUR_ALPACA_PAPER_KEY
-alpaca_secret: YOUR_ALPACA_PAPER_SECRET
+alpaca_key: YOUR_ALPACA_KEY_HERE
+alpaca_secret: YOUR_ALPACA_SECRET_HERE
 breadth_min_long: 0.35
 calib_ratio: 0.15
 capital: 100000
@@ -25,6 +25,10 @@ sma200_buffer: 0.02
 test_ratio: 0.15
 threshold: 0.64
 threshold_base: 0.64
+threshold_short: 0.45
+bear_etf: SH
+bear_etf_alloc: 0.25
+bear_etf_exit_buffer: 0.01
 threshold_updated_at: '2026-03-13T16:03:04.854438'
 threshold_weekly_max_drift: 0.1
 threshold_weekly_min_trades: 20

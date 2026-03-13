@@ -22,7 +22,7 @@ from features import engineer, split_inputs
 from primary_model import PrimaryModel
 from meta_model import MetaModel, calibrate
 from labeling import attach_barrier_to_features, make_meta_labels
-from signals import generate_signal
+from signals import generate_signal, is_bear_market
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,8 +104,9 @@ def run_backtest():
              f"({test_start} → {test_end}, ~{n_trading_days} trading days)")
 
     _, X_test = split_inputs(df_test)
-    threshold = config["threshold"]
-    log.info(f"Threshold: {threshold}")
+    threshold       = config["threshold"]
+    threshold_short = config.get("threshold_short", 0.45)
+    log.info(f"Threshold (long): {threshold}  |  Threshold (short): {threshold_short}")
 
     # ── Pre-compute calibrated probs for all test rows ─────────────────────
     all_probs, all_signals, all_rows = [], [], []
@@ -171,7 +172,11 @@ def run_backtest():
     trades = []
     for prob, psig, feat_row in zip(all_probs, all_signals, all_rows):
         vix_regime = feat_row.get("vix_regime", 1)
-        adj_thresh = threshold + (0.05 if vix_regime == 2 else 0.0)
+        # Dual threshold: lower bar for shorts (MetaModel less calibrated there)
+        if psig == -1:
+            adj_thresh = threshold_short + (0.03 if vix_regime == 2 else 0.0)
+        else:
+            adj_thresh = threshold + (0.05 if vix_regime == 2 else 0.0)
         if prob < adj_thresh:
             continue
 
@@ -230,6 +235,80 @@ def run_backtest():
     df_trades = pd.DataFrame(trades)
     df_trades.to_csv(OUTPUT_DIR / "backtest_trades.csv", index=False)
 
+    # ── SH Bear Market Overlay Simulation ───────────────────────────────────
+    # Simulate holding SH (inverse S&P500) during bear market periods.
+    # Bear = SPY < MA200 AND breadth_pct < breadth_min_long.
+    # Capital allocated: bear_etf_alloc × portfolio equity at entry.
+    bear_etf_alloc      = config.get("bear_etf_alloc", 0.25)
+    bear_etf_exit_buf   = config.get("bear_etf_exit_buffer", 0.01)
+    sh_pnl_total        = 0.0
+    bear_periods        = []
+
+    try:
+        spy_series  = context["SPY"]["Close"]
+        sh_series   = context["SH"]["Close"]
+        spy_ma200_s = spy_series.rolling(200).mean()
+        sh_daily_ret = sh_series.pct_change().fillna(0)
+
+        # Build daily breadth_pct for test period
+        breadth_by_date = (
+            df_test.groupby("date")["breadth_pct"].mean()
+            .rename(lambda d: pd.Timestamp(d))
+        )
+
+        in_bear        = False
+        sh_entry_equity = 0.0
+        sh_current     = 0.0   # dollar value of SH holding
+        bear_start_date = None
+
+        test_biz_days = pd.bdate_range(str(test_start), str(test_end))
+        for day in test_biz_days:
+            spy_p = spy_series.get(day)
+            spy_m = spy_ma200_s.get(day)
+            if spy_p is None or spy_m is None or pd.isna(spy_p) or pd.isna(spy_m):
+                continue
+            breadth = float(breadth_by_date.get(day, 0.5))
+
+            bear_now = is_bear_market(float(spy_p), float(spy_m), breadth, config)
+
+            if bear_now and not in_bear:
+                # Enter SH position
+                in_bear = True
+                bear_start_date = day
+                sh_current = equity * bear_etf_alloc   # use current equity at entry
+                log.info(f"[SH] Bear mode ENTER on {day.date()}  "
+                         f"  SPY={spy_p:.1f} < MA200={spy_m:.1f}")
+
+            if in_bear:
+                # Compound SH daily
+                day_ret = float(sh_daily_ret.get(day, 0.0))
+                if pd.isna(day_ret):
+                    day_ret = 0.0
+                sh_current *= (1 + day_ret)
+
+            # Exit SH: SPY must recross MA200 with exit buffer
+            if in_bear and not bear_now:
+                exit_confirmed = float(spy_p) > float(spy_m) * (1 + bear_etf_exit_buf)
+                if exit_confirmed:
+                    period_pnl = sh_current - equity * bear_etf_alloc
+                    sh_pnl_total += period_pnl
+                    equity += period_pnl
+                    bear_periods.append((bear_start_date, day, period_pnl))
+                    log.info(f"[SH] Bear mode EXIT on {day.date()}  "
+                             f"  Period P&L: ${period_pnl:+,.0f}")
+                    in_bear = False
+                    sh_current = 0.0
+
+        # Close open SH position at end of test period if still in bear mode
+        if in_bear and sh_current > 0:
+            period_pnl = sh_current - equity * bear_etf_alloc
+            sh_pnl_total += period_pnl
+            equity += period_pnl
+            bear_periods.append((bear_start_date, test_biz_days[-1], period_pnl))
+
+    except Exception as e:
+        log.warning(f"SH simulation failed: {e}")
+
     # ── Metrics ─────────────────────────────────────────────────────────────
     equity_arr  = np.array(equity_ts)
     total_pnl   = equity - capital
@@ -272,6 +351,18 @@ def run_backtest():
     print(f"  Max drawdown:        {max_dd:.2%}  (on equity curve)")
     pf = (net_rets[wins].sum() / (abs(net_rets[~wins].sum()) + 1e-9))
     print(f"  Profit factor:       {pf:.2f}")
+    print()
+
+    # ── Bear market overlay summary ──────────────────────────────────────────
+    n_short_trades = (df_trades["signal"] == -1).sum()
+    print(f"── Bear Market Mode ─────────────────────────────────────────")
+    print(f"  Short trades (individual stocks): {n_short_trades}")
+    if bear_periods:
+        for bs, be, bpnl in bear_periods:
+            print(f"  SH period: {bs.date()} → {be.date()}  P&L: ${bpnl:+,.0f}")
+        print(f"  SH total P&L:  ${sh_pnl_total:+,.0f}")
+    else:
+        print(f"  SH overlay: no bear market in test period → $0 (code ready)")
     print()
 
     print("  By ticker:")

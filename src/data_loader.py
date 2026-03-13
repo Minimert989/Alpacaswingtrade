@@ -27,7 +27,7 @@ class DataLoader:
 
     def fetch_market_context(self, start, end):
         return self.fetch(
-            ["^VIX", "SPY", "XLK", "XLF", "XLE", "XLV", "XLY"],
+            ["^VIX", "SPY", "SH", "XLK", "XLF", "XLE", "XLV", "XLY"],
             start, end, "1d"
         )
 
