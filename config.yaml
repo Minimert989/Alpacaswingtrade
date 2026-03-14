@@ -33,7 +33,7 @@ test_ratio: 0.15
 threshold: 0.62
 threshold_base: 0.62
 threshold_short: 0.45
-threshold_updated_at: '2026-03-14T05:47:40.670736'
+threshold_updated_at: '2026-03-14T06:30:22.746094'
 threshold_weekly_max_drift: 0.1
 threshold_weekly_min_trades: 20
 tickers:

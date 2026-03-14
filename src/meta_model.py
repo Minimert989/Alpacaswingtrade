@@ -68,13 +68,14 @@ class MetaModel:
             ("lgbm", LGBMClassifier(
                 n_estimators=500, learning_rate=0.01, num_leaves=31,
                 subsample=0.8, colsample_bytree=0.8, verbose=-1,
+                random_state=42,
             )),
             ("xgb", XGBClassifier(
                 n_estimators=300, learning_rate=0.05,
                 objective="binary:logistic", eval_metric="logloss",
-                verbosity=0,
+                verbosity=0, random_state=42, seed=42,
             )),
-            ("lr", LogisticRegression(class_weight="balanced", max_iter=1000)),
+            ("lr", LogisticRegression(class_weight="balanced", max_iter=1000, random_state=42)),
         ]
         # Pipeline for LR: impute NaN then scale (LightGBM/XGB handle NaN natively)
         self._imputer = SimpleImputer(strategy="median")
