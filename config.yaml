@@ -1,10 +1,15 @@
 alpaca_key: YOUR_ALPACA_KEY_HERE
 alpaca_secret: YOUR_ALPACA_SECRET_HERE
+bear_etf: SH
+bear_etf_alloc: 0.25
+bear_etf_exit_buffer: 0.01
 breadth_min_long: 0.35
 calib_ratio: 0.15
 capital: 100000
 commission_rate: 0.001
+cs_long_n: 10
 cs_momentum_min_rank: 0.3
+cs_short_n: 10
 daily_loss_limit_pct: 0.02
 earnings_blackout_days: 5
 kelly_fraction: 0.25
@@ -23,13 +28,11 @@ slippage_conservative: true
 slippage_model: sqrt
 sma200_buffer: 0.02
 test_ratio: 0.15
-threshold: 0.64
-threshold_base: 0.64
+threshold: 0.62
+threshold_base: 0.62
+# ↑ optimal for 27-ticker model (QCOM/TSLA/AMZN removed)
 threshold_short: 0.45
-bear_etf: SH
-bear_etf_alloc: 0.25
-bear_etf_exit_buffer: 0.01
-threshold_updated_at: '2026-03-13T16:03:04.854438'
+threshold_updated_at: '2026-03-14T03:08:28.894174'
 threshold_weekly_max_drift: 0.1
 threshold_weekly_min_trades: 20
 tickers:
@@ -38,8 +41,6 @@ tickers:
 - NVDA
 - GOOGL
 - META
-- AMZN
-- TSLA
 - AMD
 - AVGO
 - ORCL
@@ -58,10 +59,11 @@ tickers:
 - WMT
 - COST
 - MU
-- QCOM
 - NOW
 - PANW
 - MCD
 - PG
 tp: 0.05
 train_ratio: 0.7
+vix_caution_threshold: 20
+vix_stop_threshold: 30

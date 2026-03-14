@@ -162,7 +162,50 @@ def run_backtest():
         print(f"  {t:>7.2f}  {len(tr):>5}  {(tr>0).mean():>8.1%}  "
               f"{tr.mean():>8.4f}  {sh:>8.2f}")
 
-    # ── Portfolio simulation at configured threshold ────────────────────────
+    # ── CS Selection: group by date, pick top-N per direction ──────────────
+    # This is the cross-sectional L/S layer:
+    # On each day, rank all candidates by MetaModel prob, then:
+    #   - Long:  top cs_long_n  by prob (highest conviction longs)
+    #   - Short: top cs_short_n by prob (highest conviction shorts)
+    # Combined with VIX stop: no new positions when VIX > vix_stop_threshold.
+    from collections import defaultdict
+    vix_stop     = config.get("vix_stop_threshold", 30)
+    vix_caution  = config.get("vix_caution_threshold", 20)
+    cs_long_n    = config.get("cs_long_n", 3)
+    cs_short_n   = config.get("cs_short_n", 3)
+
+    daily_candidates = defaultdict(list)
+    n_vix_stopped = 0
+    for prob, psig, feat_row in zip(all_probs, all_signals, all_rows):
+        # VIX hard stop
+        vix_val = feat_row.get("vix", 0)
+        if vix_val > vix_stop:
+            n_vix_stopped += 1
+            continue
+        # Threshold with VIX caution bump
+        vix_bump = 0.03 if vix_val > vix_caution else 0.0
+        if psig == -1:
+            adj_thresh = threshold_short + vix_bump
+        else:
+            adj_thresh = threshold + vix_bump
+        if prob < adj_thresh:
+            continue
+        date = feat_row.get("date")
+        daily_candidates[date].append((prob, psig, feat_row))
+
+    # CS selection: top-N per direction per day
+    selected_trades = []
+    for date in sorted(daily_candidates.keys()):
+        day_cands = daily_candidates[date]
+        longs  = sorted([c for c in day_cands if c[1] == +1], key=lambda x: -x[0])[:cs_long_n]
+        shorts = sorted([c for c in day_cands if c[1] == -1], key=lambda x: -x[0])[:cs_short_n]
+        selected_trades.extend(longs + shorts)
+
+    n_after_cs = len(selected_trades)
+    print(f"  VIX-stopped signals: {n_vix_stopped}  (VIX > {vix_stop})")
+    print(f"  After CS selection:  {n_after_cs}  (top-{cs_long_n}L / top-{cs_short_n}S per day)")
+
+    # ── Portfolio simulation on CS-selected trades ──────────────────────────
     capital     = float(config["capital"])
     commission  = config["commission_rate"]
     equity      = capital
@@ -170,15 +213,7 @@ def run_backtest():
     trade_dates = [None]      # dates aligned with equity_ts
 
     trades = []
-    for prob, psig, feat_row in zip(all_probs, all_signals, all_rows):
-        vix_regime = feat_row.get("vix_regime", 1)
-        # Dual threshold: lower bar for shorts (MetaModel less calibrated there)
-        if psig == -1:
-            adj_thresh = threshold_short + (0.03 if vix_regime == 2 else 0.0)
-        else:
-            adj_thresh = threshold + (0.05 if vix_regime == 2 else 0.0)
-        if prob < adj_thresh:
-            continue
+    for prob, psig, feat_row in selected_trades:
 
         entry = feat_row.get("close", np.nan)
         exit_ = feat_row.get("barrier_exit_price", np.nan)
@@ -334,6 +369,7 @@ def run_backtest():
     print("\n" + "=" * 60)
     print("  BACKTEST RESULTS  (held-out test set, last 15%)")
     print(f"  Period: {test_start} → {test_end}  (~{n_trading_days} trading days)")
+    print(f"  Strategy: CS L/S (top-{cs_long_n}L / top-{cs_short_n}S per day) + VIX stop @ {vix_stop}")
     print("=" * 60)
     print(f"  Trades:              {len(trades)}")
     print(f"  Win rate (gross):    {gross_wins.mean():.1%}")

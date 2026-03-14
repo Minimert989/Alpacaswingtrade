@@ -19,10 +19,17 @@ def generate_signal(meta_model, calibrator, X_live,
                     primary_signal, features_row, threshold,
                     config=None):
     """
-    features_row에 반드시 포함돼야 하는 키:
-      earnings_proximity, volume, avg_vol_20d, vix_regime
+    Returns (signal, prob) after applying all pre-filters.
 
-    config (optional): if provided, uses threshold_short for signal=-1
+    Filter chain:
+      1. PrimaryModel pass-through check
+      2. Earnings blackout
+      3. Volume filter (>= 0.5x 20d avg)
+      4. VIX hard stop (VIX > vix_stop_threshold → no trade)
+      5. MetaModel prob threshold (with VIX caution bump)
+
+    config keys used:
+      threshold_short, vix_stop_threshold (30), vix_caution_threshold (20)
     """
     if primary_signal == 0:
         return 0, None
@@ -37,23 +44,62 @@ def generate_signal(meta_model, calibrator, X_live,
         log.debug(f"Volume filter: {volume_today:.0f} < {avg_vol_20d*0.5:.0f}")
         return 0, None
 
+    # VIX hard stop: extreme panic → ML model unreliable, flat is best
+    vix_val  = features_row.get("vix", 0)
+    vix_stop = config.get("vix_stop_threshold", 30) if config else 30
+    if vix_val > vix_stop:
+        log.debug(f"VIX stop: vix={vix_val:.1f} > threshold={vix_stop}")
+        return 0, None
+
     raw  = meta_model.predict_proba_positive(X_live.reshape(1, -1))
     prob = float(raw[0])  # raw ensemble prob (calibrator retrain pending)
 
-    vix_regime = features_row.get("vix_regime", 1)
+    # VIX caution zone: raise threshold slightly but keep trading
+    vix_caution = config.get("vix_caution_threshold", 20) if config else 20
+    vix_bump    = 0.03 if vix_val > vix_caution else 0.0
 
-    # Dual threshold: longs use standard threshold (+ VIX adjustment),
-    # shorts use threshold_short (MetaModel less well-calibrated for shorts).
+    # Dual threshold: longs use standard threshold (+VIX bump),
+    # shorts use threshold_short (MetaModel less calibrated for shorts).
     if primary_signal == -1 and config is not None:
-        # In high VIX, shorts face mean-reversion risk → tighten slightly
-        adj_thresh = config.get("threshold_short", threshold - 0.15)
-        adj_thresh += 0.03 if vix_regime == 2 else 0.0
+        adj_thresh = config.get("threshold_short", threshold - 0.15) + vix_bump
     else:
-        adj_thresh = threshold + (0.05 if vix_regime == 2 else 0.0)
+        adj_thresh = threshold + vix_bump
 
     if prob >= adj_thresh:
         return primary_signal, prob
     return 0, None
+
+
+def select_cs_signals(candidates, config):
+    """
+    Cross-sectional selection: from all of today's passing signal candidates,
+    pick the top-N longs and top-N shorts by MetaModel prob.
+
+    This is the core of the L/S equity strategy — rather than taking every
+    signal that clears the threshold, we rank and select only the highest-
+    conviction names each day, creating a portfolio that's:
+      • Long the strongest outliers (highest prob)
+      • Short the weakest outliers (highest short prob)
+
+    candidates: list of (ticker, signal, prob, feat_row, X_row)
+    returns:    filtered list, top cs_long_n longs + top cs_short_n shorts
+    """
+    cs_long_n  = config.get("cs_long_n", 3)
+    cs_short_n = config.get("cs_short_n", 3)
+
+    longs  = sorted([c for c in candidates if c[1] == +1], key=lambda x: -x[2])
+    shorts = sorted([c for c in candidates if c[1] == -1], key=lambda x: -x[2])
+
+    selected = longs[:cs_long_n] + shorts[:cs_short_n]
+
+    if selected:
+        n_l = sum(1 for c in selected if c[1] == +1)
+        n_s = sum(1 for c in selected if c[1] == -1)
+        log.info(
+            f"[CS-Select] {n_l}L / {n_s}S  "
+            f"(from {len(longs)} long / {len(shorts)} short candidates)"
+        )
+    return selected
 
 
 def position_size(signal, prob, capital, atr, price,

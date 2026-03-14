@@ -12,7 +12,7 @@ from features import engineer, split_inputs
 from labeling import attach_barrier_to_features   # 운영엔 미사용, import만
 from primary_model import PrimaryModel
 from meta_model import MetaModel, calibrate
-from signals import generate_signal, position_size, is_bear_market
+from signals import generate_signal, position_size, is_bear_market, select_cs_signals
 from executor import AlpacaExecutor
 from alpaca.trading.enums import OrderSide, TimeInForce
 
@@ -104,39 +104,48 @@ def run():
             except Exception as e:
                 log.warning(f"[BEAR] SH exit failed: {e}")
 
-    # ── Individual stock signals ────────────────────────────────────────────
-    log_rows = []
+    # ── Phase 1: Collect all today's signal candidates ──────────────────────
+    # Generate signals for every ticker but DON'T execute yet.
+    # generate_signal() applies VIX hard stop internally.
+    candidates = []   # list of (ticker, signal, prob, feat_row, X_row)
+
     for ticker in config["tickers"]:
         features_df = feat_dict.get(ticker)
         if features_df is None or features_df.empty:
             continue
 
-        # primary signal 생성 후 피처에 추가
         primary_signals               = primary.predict(features_df)
         features_df["primary_signal"] = primary_signals
 
-        # 오늘 행 (운영 — barrier 컬럼 없음, 정상)
         feat_today = features_df.iloc[[-1]]
         psig_today = int(primary_signals.iloc[-1])
         feat_row   = feat_today.iloc[0].to_dict()
 
-        # In bear mode: only allow short signals; in bull mode: only allow longs
+        # Regime routing: bear → only shorts; bull → only longs
         if bear_mode and psig_today == 1:
-            continue   # no new longs in bear market
+            continue
         if not bear_mode and psig_today == -1:
-            continue   # no new shorts in bull market
+            continue
 
         _, X_today = split_inputs(feat_today)
         signal, prob = generate_signal(
             meta_model, calibrator,
             X_today.values[0], psig_today,
             feat_row, config["threshold"],
-            config=config,              # enables threshold_short for signal=-1
+            config=config,
         )
 
-        if signal == 0:
-            continue
+        if signal != 0:
+            candidates.append((ticker, signal, prob, feat_row, X_today.values[0]))
 
+    # ── Phase 2: Cross-sectional selection ──────────────────────────────────
+    # Among all candidates today, pick only the top-N per direction by prob.
+    # This ensures we execute the BEST signals, not just any that pass threshold.
+    selected = select_cs_signals(candidates, config)
+
+    # ── Phase 3: Execute selected signals ───────────────────────────────────
+    log_rows = []
+    for ticker, signal, prob, feat_row, _ in selected:
         atr_today   = feat_row["atr_14"]
         price_today = feat_row["close"]
 
