@@ -43,9 +43,18 @@ class AlpacaExecutor:
             self.close_position(symbol)
             time.sleep(1)
 
+        # Short positions use separate TP/SL to ensure positive risk/reward.
+        # Long:  TP = price rises tp(5%),    SL = price falls sl(3%)
+        # Short: TP = price falls short_tp(8%), SL = price rises short_sl(4%)
+        if side == OrderSide.BUY:
+            tp_size = self.config["tp"]
+            sl_size = self.config["sl"]
+        else:
+            tp_size = self.config.get("short_tp", 0.08)
+            sl_size = self.config.get("short_sl", 0.04)
         sign     = 1 if side == OrderSide.BUY else -1
-        tp_price = round(entry_price * (1 + sign * self.config["tp"]), 2)
-        sl_price = round(entry_price * (1 - sign * self.config["sl"]), 2)
+        tp_price = round(entry_price * (1 + sign * tp_size), 2)
+        sl_price = round(entry_price * (1 - sign * sl_size), 2)
         return self._submit_bracket(symbol, qty, side, tp_price, sl_price)
 
     def close_position(self, symbol):

@@ -42,7 +42,16 @@ def _kelly_frac(prob, tp, sl, kelly_fraction, max_position_pct):
     return min(kelly * kelly_fraction, max_position_pct)
 
 
-def run_backtest():
+def run_backtest(test_start_override=None, test_end_override=None, bear_demo=False):
+    """
+    test_start_override / test_end_override : str "YYYY-MM-DD"
+        When set, df_test is filtered to this date range instead of the
+        automatic last-15% split.  Useful for bear market validation on 2022.
+
+    bear_demo : bool
+        If True, prints a disclaimer that results are in-sample (the
+        production model was trained on this period).
+    """
     with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
@@ -55,7 +64,9 @@ def run_backtest():
     primary = PrimaryModel(config)
 
     end   = datetime.today().strftime("%Y-%m-%d")
-    start = (datetime.today() - timedelta(days=1500)).strftime("%Y-%m-%d")
+    # Extend window to cover 2022 bear market when running bear demo
+    lookback_days = 1500 if not bear_demo else 1600
+    start = (datetime.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
     log.info(f"Fetching data {start} → {end} (uses cache if fresh) ...")
     ohlcv    = loader.fetch(config["tickers"], start, end, "1d")
@@ -94,7 +105,18 @@ def run_backtest():
     t_end = int(n * config["train_ratio"])
     c_end = int(n * (config["train_ratio"] + config["calib_ratio"]))
 
-    df_test = df_all.iloc[c_end:].copy().reset_index(drop=True)
+    # ── Test set selection ───────────────────────────────────────────────────
+    if test_start_override or test_end_override:
+        # Custom date range (e.g. 2022 bear market demo)
+        df_test = df_all.copy()
+        if test_start_override:
+            df_test = df_test[df_test["date"] >= pd.Timestamp(test_start_override)]
+        if test_end_override:
+            df_test = df_test[df_test["date"] <= pd.Timestamp(test_end_override)]
+        df_test = df_test.reset_index(drop=True)
+    else:
+        df_test = df_all.iloc[c_end:].copy().reset_index(drop=True)
+
     test_start = df_test["date"].min().date()
     test_end   = df_test["date"].max().date()
     n_cal_days = max((df_test["date"].max() - df_test["date"].min()).days, 1)
@@ -222,8 +244,14 @@ def run_backtest():
 
         signal = int(psig)
 
-        # Kelly position sizing (fraction of current equity)
-        frac = _kelly_frac(prob, config["tp"], config["sl"],
+        # Kelly position sizing — use short-specific TP/SL for shorts
+        if signal == -1:
+            tp_k = config.get("short_tp", 0.08)
+            sl_k = config.get("short_sl", 0.04)
+        else:
+            tp_k = config["tp"]
+            sl_k = config["sl"]
+        frac = _kelly_frac(prob, tp_k, sl_k,
                            config["kelly_fraction"], config["max_position_pct"])
         if frac <= 0:
             continue
@@ -367,7 +395,11 @@ def run_backtest():
     gross_wins = gross_rets > 0
 
     print("\n" + "=" * 60)
-    print("  BACKTEST RESULTS  (held-out test set, last 15%)")
+    if bear_demo:
+        print("  ⚠️  BEAR MARKET DEMO  (IN-SAMPLE — 모델이 이 기간 데이터로 학습됨)")
+        print("  성능 수치는 과적합 가능성 있음. 로직 검증 목적으로만 사용.")
+    else:
+        print("  BACKTEST RESULTS  (held-out test set, last 15%)")
     print(f"  Period: {test_start} → {test_end}  (~{n_trading_days} trading days)")
     print(f"  Strategy: CS L/S (top-{cs_long_n}L / top-{cs_short_n}S per day) + VIX stop @ {vix_stop}")
     print("=" * 60)
@@ -481,4 +513,21 @@ def run_backtest():
 
 
 if __name__ == "__main__":
-    run_backtest()
+    import argparse
+    parser = argparse.ArgumentParser(description="QuantAlpaca Backtest")
+    parser.add_argument(
+        "--bear-test", action="store_true",
+        help="Run on 2022 bear market period (in-sample demo, logic validation only)"
+    )
+    args = parser.parse_args()
+
+    if args.bear_test:
+        print("\n[BEAR TEST] 2022년 bear market 구간으로 테스트합니다.")
+        print("[BEAR TEST] 주의: 이 기간은 학습 데이터에 포함됨 → 성능 수치는 참고용")
+        run_backtest(
+            test_start_override="2022-03-01",
+            test_end_override="2022-12-31",
+            bear_demo=True,
+        )
+    else:
+        run_backtest()

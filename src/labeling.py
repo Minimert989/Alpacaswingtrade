@@ -67,6 +67,11 @@ def attach_barrier_to_features(features_df: pd.DataFrame,
     features_df에 barrier_label, barrier_exit_price 컬럼 병합.
     학습/평가 파이프라인 진입 전 반드시 호출.
     운영(main.py)에서는 호출하지 않음.
+
+    단일 barrier 크기(tp/sl)를 Long/Short 모두에 적용.
+    Short 전용 TP/SL(short_tp/short_sl)은 executor.py와
+    backtest.py의 Kelly 사이징에서만 적용된다.
+    (별도 barrier로 학습 시 Long 모델 품질이 크게 저하됨 — 단일 barrier 유지)
     사용 예:
         features_df = attach_barrier_to_features(features_df, config)
     """

@@ -23,6 +23,8 @@ min_bucket_trades: 15
 paper: true
 primary_adx_threshold: 15
 regime_min_trades: 5
+short_sl: 0.04
+short_tp: 0.08
 sl: 0.03
 slippage_conservative: true
 slippage_model: sqrt
@@ -30,9 +32,8 @@ sma200_buffer: 0.02
 test_ratio: 0.15
 threshold: 0.62
 threshold_base: 0.62
-# ↑ optimal for 27-ticker model (QCOM/TSLA/AMZN removed)
 threshold_short: 0.45
-threshold_updated_at: '2026-03-14T03:08:28.894174'
+threshold_updated_at: '2026-03-14T05:47:40.670736'
 threshold_weekly_max_drift: 0.1
 threshold_weekly_min_trades: 20
 tickers:
